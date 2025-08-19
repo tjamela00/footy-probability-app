@@ -1,95 +1,206 @@
 import streamlit as st
-import os
-from src.providers.football_data import FootballDataProvider
-from src.providers.api_football import APIFootballProvider
-from src.models.probability import predict_probabilities
+import requests
+import math
+import pandas as pd
+import altair as alt
+
+# --- API-Football key ---
+API_FOOTBALL_KEY = "af56a1c0b4654b80a8400478462ae752"
+HEADERS = {"x-apisports-key": API_FOOTBALL_KEY}
+BASE_URL = "https://v3.football.api-sports.io/"
 
 # --- Page setup ---
 st.set_page_config(page_title="⚽ Football Match Analyzer", layout="wide")
-st.title("⚽ Football Match Analyzer with Probabilities")
-
-# --- Load API Keys ---
-FD_API_KEY = os.getenv("FOOTBALL_DATA_API_KEY", "")
-API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "")
-
-fd = FootballDataProvider(FD_API_KEY) if FD_API_KEY else None
-api = APIFootballProvider(API_FOOTBALL_KEY) if API_FOOTBALL_KEY else None
+st.title("⚽ Football Match Analyzer with Probabilities & Dashboard")
 
 # --- Sidebar ---
 st.sidebar.header("🔍 Match Selector")
-competition = st.sidebar.text_input("Competition ID (e.g. PL for Premier League):", "PL")
-matchday = st.sidebar.number_input("Matchday", min_value=1, max_value=50, value=1)
+league_id = st.sidebar.text_input("League ID (e.g., 39 = Premier League):", "39")
+season = st.sidebar.number_input("Season (year):", min_value=2000, max_value=2030, value=2025)
+fixtures_resp = requests.get(f"{BASE_URL}fixtures?league={league_id}&season={season}", headers=HEADERS).json()
+fixtures = fixtures_resp.get("response", [])
 
-if fd:
-    fixtures = fd.get_fixtures(competition, matchday)
-else:
-    fixtures = [
-        {"homeTeam": {"id": 1, "name": "Team A"},
-         "awayTeam": {"id": 2, "name": "Team B"},
-         "id": 100, "utcDate": "2025-08-20T19:00:00Z"}
-    ]
+fixture_options = [
+    {"id": f["fixture"]["id"],
+     "home": f["teams"]["home"]["name"],
+     "away": f["teams"]["away"]["name"],
+     "home_id": f["teams"]["home"]["id"],
+     "away_id": f["teams"]["away"]["id"],
+     "utc": f["fixture"]["date"]}
+    for f in fixtures
+]
 
-fixture = st.sidebar.selectbox("Select Match", fixtures, format_func=lambda x: f"{x['homeTeam']['name']} vs {x['awayTeam']['name']}")
+fixture = st.sidebar.selectbox(
+    "Select Match",
+    fixture_options,
+    format_func=lambda x: f"{x['home']} vs {x['away']}"
+)
 
 if fixture:
-    home_team = fixture["homeTeam"]["name"]
-    away_team = fixture["awayTeam"]["name"]
+    st.markdown(f"### 🏟️ {fixture['home']} vs {fixture['away']}")
+    st.markdown(f"**Kickoff (UTC):** {fixture['utc']}")
 
-    st.markdown(
-        f"### 🏟️ {home_team} vs {away_team}  \n"
-        f"**Kickoff (UTC):** {fixture.get('utcDate','?')}"
-    )
+    home_id = fixture["home_id"]
+    away_id = fixture["away_id"]
 
-    # --- Fetch team data ---
-    if api:
-        home_stats = api.get_team_stats(fixture["homeTeam"]["id"], competition)
-        away_stats = api.get_team_stats(fixture["awayTeam"]["id"], competition)
-        h2h = api.get_head_to_head(fixture["homeTeam"]["id"], fixture["awayTeam"]["id"])
-        injuries = api.get_injuries(fixture["homeTeam"]["id"], fixture["awayTeam"]["id"])
-        cards = api.get_cards(fixture["homeTeam"]["id"], fixture["awayTeam"]["id"])
-        top_scorers = api.get_top_scorers(competition)
-    else:
-        # Mock fallback
-        home_stats = {"avg_goals_scored": 1.8, "avg_goals_conceded": 1.0, "home_form": "WDLWW"}
-        away_stats = {"avg_goals_scored": 1.2, "avg_goals_conceded": 1.6, "away_form": "DLLWL"}
-        h2h = {"home_wins": 3, "away_wins": 2, "draws": 1}
-        injuries = [{"team": home_team, "player": "Player A", "type": "Hamstring"}]
-        cards = [{"team": away_team, "player": "Player B", "cards": 5}]
-        top_scorers = [{"player": "Star Striker", "team": home_team, "goals": 10}]
+    # --- Fetch team stats ---
+    def get_team_stats(team_id):
+        url = f"{BASE_URL}teams/statistics?team={team_id}&league={league_id}&season={season}"
+        r = requests.get(url, headers=HEADERS).json()
+        data = r.get("response", {})
+        data["team_id"] = team_id
+        return data
 
-    # --- Show Analysis Panels ---
+    home_stats = get_team_stats(home_id)
+    away_stats = get_team_stats(away_id)
+
+    # --- Head-to-Head ---
+    h2h_resp = requests.get(f"{BASE_URL}fixtures/headtohead?h2h={home_id}-{away_id}", headers=HEADERS).json()
+    h2h = h2h_resp.get("response", [])
+
+    # --- Injuries ---
+    inj_home = requests.get(f"{BASE_URL}injuries?team={home_id}&season={season}", headers=HEADERS).json()
+    inj_away = requests.get(f"{BASE_URL}injuries?team={away_id}&season={season}", headers=HEADERS).json()
+    injuries = inj_home.get("response", []) + inj_away.get("response", [])
+
+    # --- Cards ---
+    cards = {"home": home_stats.get("cards", {}), "away": away_stats.get("cards", {})}
+
+    # --- Top Scorers ---
+    scorers_resp = requests.get(f"{BASE_URL}players/topscorers?league={league_id}&season={season}", headers=HEADERS).json()
+    top_scorers = scorers_resp.get("response", [])
+
+    # --- Last 5 Matches (Form) ---
+    def get_last_matches(team_id, league_id, season, last=5):
+        url = f"{BASE_URL}fixtures?team={team_id}&league={league_id}&season={season}&last={last}"
+        r = requests.get(url, headers=HEADERS).json()
+        matches = r.get("response", [])
+        return matches
+
+    def calculate_form(matches, team_id):
+        score = 0
+        for m in matches:
+            winner = m["score"]["winner"]
+            if winner == "Home" and m["teams"]["home"]["id"] == team_id:
+                score += 1
+            elif winner == "Away" and m["teams"]["away"]["id"] == team_id:
+                score += 1
+            elif winner == "Draw":
+                score += 0.5
+        return score / len(matches) if matches else 0.5
+
+    home_form_matches = get_last_matches(home_id, league_id, season, last=5)
+    away_form_matches = get_last_matches(away_id, league_id, season, last=5)
+    home_form = calculate_form(home_form_matches, home_id)
+    away_form = calculate_form(away_form_matches, away_id)
+
+    st.subheader("📊 Recent Form (Last 5 Matches)")
+    st.markdown(f"**{fixture['home']} Form Score:** {home_form:.2f} / 1.0")
+    st.markdown(f"**{fixture['away']} Form Score:** {away_form:.2f} / 1.0")
+
+    # --- Show stats ---
     col1, col2 = st.columns(2)
-
     with col1:
-        st.subheader("📊 Team Stats")
-        st.write(f"**{home_team}**: {home_stats}")
-        st.write(f"**{away_team}**: {away_stats}")
-
+        st.subheader(f"📊 {fixture['home']} Stats")
+        st.json(home_stats)
         st.subheader("🤝 Head-to-Head")
-        st.write(h2h)
-
+        st.json(h2h)
         st.subheader("⚽ Top Scorers")
-        for scorer in top_scorers:
-            st.write(f"{scorer['player']} ({scorer['team']}) - {scorer['goals']} goals")
-
+        st.json(top_scorers)
     with col2:
-        st.subheader("🩼 Injuries")
-        for inj in injuries:
-            st.write(f"{inj['player']} - {inj['type']} ({inj['team']})")
+        st.subheader(f"🩼 Injuries")
+        st.json(injuries)
+        st.subheader("🟨 Discipline (Cards)")
+        st.json(cards)
 
-        st.subheader("🟨 Discipline")
-        for card in cards:
-            st.write(f"{card['player']} ({card['team']}) - {card['cards']} cards")
+    # --- Advanced Probability Model ---
+    def predict_probabilities(home_stats, away_stats, h2h=None, injuries=None, cards=None, top_scorers=None, home_form=0.5, away_form=0.5):
+        home_goals_for = home_stats.get("goals", {}).get("for", {}).get("total", 1)
+        home_goals_against = home_stats.get("goals", {}).get("against", {}).get("total", 1)
+        away_goals_for = away_stats.get("goals", {}).get("for", {}).get("total", 1)
+        away_goals_against = away_stats.get("goals", {}).get("against", {}).get("total", 1)
+        home_strength = home_goals_for - home_goals_against
+        away_strength = away_goals_for - away_goals_against
+        score = home_strength - away_strength
 
-    # --- Probability Engine ---
-    probabilities = predict_probabilities(
-        home_stats=home_stats,
-        away_stats=away_stats,
-        h2h=h2h,
-        injuries=injuries,
-        cards=cards,
-        top_scorers=top_scorers,
+        # H2H adjustment
+        if h2h:
+            home_wins = sum(1 for g in h2h if g["teams"]["home"]["id"]==home_stats["team_id"] and g["score"]["winner"]=="Home")
+            away_wins = sum(1 for g in h2h if g["teams"]["away"]["id"]==away_stats["team_id"] and g["score"]["winner"]=="Away")
+            score += (home_wins - away_wins) * 0.1
+
+        # Injuries penalty
+        home_inj = len([i for i in injuries if i["team"]["id"]==home_stats["team_id"]])
+        away_inj = len([i for i in injuries if i["team"]["id"]==away_stats["team_id"]])
+        score += (away_inj - home_inj) * 0.05
+
+        # Cards penalty
+        home_cards = cards.get("home", {}).get("yellow", 0) + cards.get("home", {}).get("red", 0)
+        away_cards = cards.get("away", {}).get("yellow", 0) + cards.get("away", {}).get("red", 0)
+        score += (away_cards - home_cards) * 0.02
+
+        # Top scorer bonus
+        for s in top_scorers:
+            if s["statistics"][0]["team"]["id"] == home_stats["team_id"]:
+                score += 0.05
+            elif s["statistics"][0]["team"]["id"] == away_stats["team_id"]:
+                score -= 0.05
+
+        # Form adjustment
+        score += (home_form - away_form) * 0.3
+
+        # Softmax to probabilities
+        home_prob = 1 / (1 + math.exp(-score))
+        away_prob = 1 - home_prob
+        draw_prob = 0.25
+        total = home_prob + away_prob + draw_prob
+        return {
+            "Home Win": round(home_prob/total, 2),
+            "Draw": round(draw_prob/total, 2),
+            "Away Win": round(away_prob/total, 2)
+        }
+
+    probs = predict_probabilities(home_stats, away_stats, h2h, injuries, cards, top_scorers, home_form, away_form)
+
+    # --- Probabilities Panel ---
+    st.subheader("📈 Predicted Outcome Probabilities")
+    st.json(probs)
+
+    # --- Visualization ---
+    df_probs = pd.DataFrame({
+        "Outcome": list(probs.keys()),
+        "Probability": list(probs.values())
+    })
+
+    chart = alt.Chart(df_probs).mark_bar(color='orange').encode(
+        x=alt.X("Outcome", sort=None),
+        y="Probability",
+        tooltip=["Outcome","Probability"]
+    ).properties(
+        width=500,
+        height=300,
+        title="Match Outcome Probabilities"
     )
+    st.altair_chart(chart, use_container_width=True)
 
-    st.subheader("📈 Predicted Outcome")
-    st.write(probabilities)
+    # --- Dynamic Prediction Summary ---
+    st.subheader("⚡ Match Prediction Summary")
+    max_outcome = max(probs, key=probs.get)
+    max_value = probs[max_outcome]
+
+    if max_outcome == "Home Win":
+        color = "green"
+        emoji = "🔥"
+        team = fixture["home"]
+    elif max_outcome == "Away Win":
+        color = "red"
+        emoji = "🔥"
+        team = fixture["away"]
+    else:
+        color = "blue"
+        emoji = "⚖️"
+        team = "Draw"
+
+    st.markdown(f"<h2 style='color:{color}'>{emoji} Most Likely Outcome: {max_outcome} ({team}) – {max_value*100:.0f}%</h2>", unsafe_allow_html=True)
+
+ 
