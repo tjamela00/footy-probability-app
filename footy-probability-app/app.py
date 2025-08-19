@@ -18,26 +18,37 @@ st.sidebar.header("🔍 Match Selector")
 league_id = st.sidebar.text_input("League ID (e.g., 39 = Premier League):", "39")
 season = st.sidebar.number_input("Season (year):", min_value=2000, max_value=2030, value=2024)
 
-# --- Fetch fixtures (try upcoming first, then fallback to recent) ---
+# --- Fetch fixtures ---
 fixtures_resp = requests.get(
     f"{BASE_URL}fixtures?league={league_id}&season={season}&next=20",
     headers=HEADERS
 ).json()
 
+# 🔎 Debug: Show raw API response
+st.write("🔎 Raw Fixtures Response (Next 20):", fixtures_resp)
+
 fixtures = fixtures_resp.get("response", [])
 
+# If no upcoming fixtures, fallback to last played
 if not fixtures:
     st.warning("⚠️ No upcoming fixtures found. Showing recent past matches instead...")
+
     fixtures_resp = requests.get(
         f"{BASE_URL}fixtures?league={league_id}&season={season}&last=20",
         headers=HEADERS
     ).json()
+
+    # 🔎 Debug: Show raw API response for fallback
+    st.write("🔎 Raw Fixtures Response (Last 20):", fixtures_resp)
+
     fixtures = fixtures_resp.get("response", [])
 
-# --- Check if fixtures exist ---
+# --- Check if API returned fixtures ---
 if not fixtures:
     st.error("❌ No fixtures found. Please try a different league or season.")
 else:
+    st.success(f"✅ Found {len(fixtures)} fixtures.")
+
     fixture_options = [
         {"id": f["fixture"]["id"],
          "home": f["teams"]["home"]["name"],
@@ -214,4 +225,3 @@ else:
             team = "Draw"
 
         st.markdown(f"<h2 style='color:{color}'>{emoji} Most Likely Outcome: {max_outcome} ({team}) – {max_value*100:.0f}%</h2>", unsafe_allow_html=True)
-
