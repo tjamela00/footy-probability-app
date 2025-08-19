@@ -18,8 +18,12 @@ This app compiles form, standings, discipline and injury indicators to estimate 
   - `FOOTBALL_DATA_TOKEN` (Football-Data.org)
   - `API_FOOTBALL_KEY` (API-Football via RapidAPI)
 """)
+
 with st.expander("⚙️ Settings", expanded=False):
-    demo_mode = st.checkbox("Run in Demo Mode (use mock data)", value=(os.getenv("FOOTBALL_DATA_TOKEN") is None and os.getenv("API_FOOTBALL_KEY") is None))
+    demo_mode = st.checkbox(
+        "Run in Demo Mode (use mock data)",
+        value=(os.getenv("FOOTBALL_DATA_TOKEN") is None and os.getenv("API_FOOTBALL_KEY") is None)
+    )
     home_adv = st.slider("Home-field advantage (model)", 0.0, 0.6, 0.25, 0.01)
 
 col1, col2 = st.columns(2)
@@ -47,7 +51,6 @@ def infer(provider, match_id):
     if match_id == "demo":
         return load_demo()
     ctx = provider.get_match_context(match_id)
-    # try to infer standings via provider if possible (competition id/code must be known by user)
     return ctx
 
 if demo_mode or match_id == "demo":
@@ -122,9 +125,10 @@ if home_pos:
 if away_pos:
     ctx["away_position"] = int(away_pos)
 
-st.markdown(f"**Match:** {ctx.get('home_team_name','?')} vs {ctx.get('away_team_name','?')}  
-"
-            f"**Competition:** {ctx.get('competition','?')} • **Kickoff (UTC):** {ctx.get('utc_kickoff','?')}")
+st.markdown(
+    f"**Match:** {ctx.get('home_team_name','?')} vs {ctx.get('away_team_name','?')}  \n"
+    f"**Competition:** {ctx.get('competition','?')} • **Kickoff (UTC):** {ctx.get('utc_kickoff','?')}"
+)
 
 colA, colB = st.columns(2)
 with colA:
