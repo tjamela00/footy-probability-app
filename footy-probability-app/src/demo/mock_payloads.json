@@ -1,0 +1,38 @@
+{
+  "match_context": {
+    "competition": "Premier League",
+    "season": "2024",
+    "utc_kickoff": "2024-10-01T15:00:00Z",
+    "home_team_id": "66",
+    "home_team_name": "Manchester United",
+    "away_team_id": "61",
+    "away_team_name": "Chelsea",
+    "home_position": 5,
+    "away_position": 7,
+    "venue": "Old Trafford"
+  },
+  "home_form": [
+    "W",
+    "W",
+    "D",
+    "L",
+    "W"
+  ],
+  "away_form": [
+    "D",
+    "W",
+    "L",
+    "W",
+    "D"
+  ],
+  "home_cards": [
+    2.1,
+    0.05
+  ],
+  "away_cards": [
+    1.8,
+    0.03
+  ],
+  "home_inj_starters": 1,
+  "away_inj_starters": 2
+}
