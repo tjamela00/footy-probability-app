@@ -7,7 +7,7 @@ import altair as alt
 # --- API-Football key ---
 API_FOOTBALL_KEY = "af56a1c0b4654b80a8400478462ae752"
 HEADERS = {"x-apisports-key": API_FOOTBALL_KEY}
-BASE_URL = "https://v3.football.api-sports.io/"
+BASE_URL = "https://v3.football.api-sports.io"
 
 # --- Page setup ---
 st.set_page_config(page_title="⚽ Football Match Analyzer", layout="wide")
@@ -20,8 +20,9 @@ season = st.sidebar.number_input("Season (year):", min_value=2000, max_value=203
 
 # --- Fetch fixtures ---
 fixtures_resp = requests.get(
-    f"{BASE_URL}fixtures?league={league_id}&season={season}&next=20",
-    headers=HEADERS
+    f"{BASE_URL}/fixtures",
+    headers=HEADERS,
+    params={"league": league_id, "season": season, "next": 20}
 ).json()
 
 # 🔎 Debug: Show raw API response
@@ -34,8 +35,9 @@ if not fixtures:
     st.warning("⚠️ No upcoming fixtures found. Showing recent past matches instead...")
 
     fixtures_resp = requests.get(
-        f"{BASE_URL}fixtures?league={league_id}&season={season}&last=20",
-        headers=HEADERS
+        f"{BASE_URL}/fixtures",
+        headers=HEADERS,
+        params={"league": league_id, "season": season, "last": 20}
     ).json()
 
     # 🔎 Debug: Show raw API response for fallback
@@ -74,8 +76,8 @@ else:
 
         # --- Fetch team stats ---
         def get_team_stats(team_id):
-            url = f"{BASE_URL}teams/statistics?team={team_id}&league={league_id}&season={season}"
-            r = requests.get(url, headers=HEADERS).json()
+            url = f"{BASE_URL}/teams/statistics"
+            r = requests.get(url, headers=HEADERS, params={"team": team_id, "league": league_id, "season": season}).json()
             data = r.get("response", {})
             data["team_id"] = team_id
             return data
@@ -84,27 +86,26 @@ else:
         away_stats = get_team_stats(away_id)
 
         # --- Head-to-Head ---
-        h2h_resp = requests.get(f"{BASE_URL}fixtures/headtohead?h2h={home_id}-{away_id}", headers=HEADERS).json()
+        h2h_resp = requests.get(f"{BASE_URL}/fixtures/headtohead", headers=HEADERS, params={"h2h": f"{home_id}-{away_id}"}).json()
         h2h = h2h_resp.get("response", [])
 
         # --- Injuries ---
-        inj_home = requests.get(f"{BASE_URL}injuries?team={home_id}&season={season}", headers=HEADERS).json()
-        inj_away = requests.get(f"{BASE_URL}injuries?team={away_id}&season={season}", headers=HEADERS).json()
+        inj_home = requests.get(f"{BASE_URL}/injuries", headers=HEADERS, params={"team": home_id, "season": season}).json()
+        inj_away = requests.get(f"{BASE_URL}/injuries", headers=HEADERS, params={"team": away_id, "season": season}).json()
         injuries = inj_home.get("response", []) + inj_away.get("response", [])
 
         # --- Cards ---
         cards = {"home": home_stats.get("cards", {}), "away": away_stats.get("cards", {})}
 
         # --- Top Scorers ---
-        scorers_resp = requests.get(f"{BASE_URL}players/topscorers?league={league_id}&season={season}", headers=HEADERS).json()
+        scorers_resp = requests.get(f"{BASE_URL}/players/topscorers", headers=HEADERS, params={"league": league_id, "season": season}).json()
         top_scorers = scorers_resp.get("response", [])
 
         # --- Last 5 Matches (Form) ---
         def get_last_matches(team_id, league_id, season, last=5):
-            url = f"{BASE_URL}fixtures?team={team_id}&league={league_id}&season={season}&last={last}"
-            r = requests.get(url, headers=HEADERS).json()
-            matches = r.get("response", [])
-            return matches
+            url = f"{BASE_URL}/fixtures"
+            r = requests.get(url, headers=HEADERS, params={"team": team_id, "league": league_id, "season": season, "last": last}).json()
+            return r.get("response", [])
 
         def calculate_form(matches, team_id):
             score = 0
@@ -224,4 +225,7 @@ else:
             emoji = "⚖️"
             team = "Draw"
 
-        st.markdown(f"<h2 style='color:{color}'>{emoji} Most Likely Outcome: {max_outcome} ({team}) – {max_value*100:.0f}%</h2>", unsafe_allow_html=True)
+        st.markdown(
+            f"<h2 style='color:{color}'>{emoji} Most Likely Outcome: {max_outcome} ({team}) – {max_value*100:.0f}%</h2>",
+            unsafe_allow_html=True
+        )
