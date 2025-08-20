@@ -1,48 +1,38 @@
 import streamlit as st
 import requests
 
-# --- API-Football key ---
-API_FOOTBALL_KEY = "af56a1c0b4654b80a8400478462ae752"
+# --- Your Football-Data.org API key ---
+API_KEY = "YOUR_FOOTBALL_DATA_KEY_HERE"
 HEADERS = {
-    "X-APISports-Key": API_FOOTBALL_KEY,   # ✅ Correct header spelling
-    "Accept": "application/json"
+    "X-Auth-Token": API_KEY   # ✅ correct header for football-data.org
 }
-BASE_URL = "https://v3.football.api-sports.io"  # no trailing slash
+BASE_URL = "https://api.football-data.org/v4"
 
-st.set_page_config(page_title="⚽ API Test", layout="wide")
-st.title("⚽ API-Football Key Test")
+st.set_page_config(page_title="⚽ Football-Data.org API Test", layout="wide")
+st.title("⚽ Football-Data.org Key Test")
 
-# --- 1) Test API status endpoint ---
-st.subheader("🔎 Step 1: Check API Status")
-status_url = f"{BASE_URL}/status"
-status_resp = requests.get(status_url, headers=HEADERS)
+# --- 1) Test Competitions Endpoint ---
+st.subheader("🔎 Step 1: Check Competitions")
+url_comp = f"{BASE_URL}/competitions"
+resp_comp = requests.get(url_comp, headers=HEADERS)
 
-if status_resp.status_code == 200:
-    st.success("✅ Successfully connected to API /status endpoint")
-    st.json(status_resp.json())
+if resp_comp.status_code == 200:
+    st.success("✅ Connected to Football-Data.org!")
+    st.json(resp_comp.json())
 else:
-    st.error(f"❌ Failed to connect to /status (HTTP {status_resp.status_code})")
-    st.text(status_resp.text)
+    st.error(f"❌ Failed (HTTP {resp_comp.status_code})")
+    st.text(resp_comp.text)
 
-# --- Sidebar inputs for fixtures ---
-st.sidebar.header("Fixture Test")
-league_id = st.sidebar.text_input("League ID", "39")   # 39 = EPL
-season = st.sidebar.number_input("Season", min_value=2000, max_value=2030, value=2024)
+# --- 2) Test Fixtures (Matches) for EPL ---
+st.subheader("🔎 Step 2: Check EPL Matches")
+league_code = "PL"   # Premier League
+url_matches = f"{BASE_URL}/competitions/{league_code}/matches"
+params = {"season": 2024}
+resp_matches = requests.get(url_matches, headers=HEADERS, params=params)
 
-# --- 2) Test fixtures endpoint ---
-st.subheader("🔎 Step 2: Check Fixtures Endpoint")
-fixtures_url = f"{BASE_URL}/fixtures"
-params = {"league": league_id, "season": season, "next": 5}
-fixtures_resp = requests.get(fixtures_url, headers=HEADERS, params=params)
-
-if fixtures_resp.status_code == 200:
-    data = fixtures_resp.json()
-    if "errors" in data and data["errors"]:
-        st.error("⚠️ API returned an error:")
-        st.json(data["errors"])
-    else:
-        st.success("✅ Fixtures retrieved successfully!")
-        st.json(data)
+if resp_matches.status_code == 200:
+    st.success("✅ Fixtures retrieved successfully!")
+    st.json(resp_matches.json())
 else:
-    st.error(f"❌ Failed to connect to /fixtures (HTTP {fixtures_resp.status_code})")
-    st.text(fixtures_resp.text)
+    st.error(f"❌ Failed (HTTP {resp_matches.status_code})")
+    st.text(resp_matches.text)
